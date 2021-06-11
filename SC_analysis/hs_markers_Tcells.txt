@@ -1,0 +1,34 @@
+>T cells
+expressed: CD3D, CD3E, CD3G, CCR7
+
+>CD8 T cells
+expressed: CD8A, CD8B
+subtype of: T cells
+
+>CD4 T cells
+expressed: CD4, FOXP3, IL2RA, IL7R
+subtype of: T cells
+
+>CD4 regulatory T cells
+expressed: STAT5A, FOXO1, FOXO3, CTLA4, TNFRSF18
+subtype of: CD4 T cells
+
+>Natural Treg cell 
+expressed: EBI3
+subtype of: CD4 regulatory T cells
+
+>Inducible Treg cell 
+expressed: SMAD2, SMAD3, SMAD4
+subtype of: CD4 regulatory T cells
+
+>Th1 Helper cell
+expressed: IL12RB1, CXCR3, STAT4, IFNG, STAT1 
+subtype of: CD4 T cells
+
+>Th2 Helper cell
+expressed: IL4R, IL1RL1, CCR4, IL17RB, PTGDR2, STAT6, GATA3, MAF, BHLHE41, IL4, IL5, IL13
+subtype of: CD4 T cells
+
+>Th17 Helper cell
+expressed: RORC, IL17A, IL22, CCL20, STAT3
+subtype of: CD4 T cells
