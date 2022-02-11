@@ -1,0 +1,801 @@
+---
+title: 'RNA-Seq Analysis: Observing HIV latent cells after type 1 or type 2 IFN stimulation
+  in Jurkat or JLat9.2 cells'
+author: "Daniel Newhouse, Monica Rojas, Richard Green, Rebecca M Olson, Leanne S. Whitmore and Michael Gale jr."
+date: ' 9/06/19'
+output:
+output:
+  pdf_document: default
+  html_document: default
+
+---
+```{r , include=TRUE, echo=FALSE}
+library(MASS)
+library(rrcov)
+library(ggplot2)
+library(WebGestaltR)
+library(data.table)
+library(edgeR)
+library(limma)
+library(dplyr)
+library(tibble)
+library(ggfortify)
+```
+Description: The goal is to identify differences in ISG induction between uninfected
+  and HIV latent cells after type 1 or type 2 IFN stimulation. Jurkat or JLat9.2 cells
+  will be mock treated or treated with IFNB or IFNy for 4h, 8h, or 12h, in triplicate
+  (42 total samples).
+ 
+```{r, echo=TRUE}
+# load raw counts
+counts <- read.csv(file="count_matrix.csv",row.names = 1, header=TRUE, check.names=FALSE)
+# load file info
+targets <- read.csv(file="target.csv", header=TRUE)
+```
+
+```{r Visuzlization_before_filtering, fig.width=7, fig.height=6,echo=TRUE}
+cols = c('deepskyblue3','darkolivegreen3','deepskyblue','darkolivegreen1','darkorchid1','darkorchid2')
+boxplot(log2(counts+1),  ylab = "log2 Expression", main = "Raw count matrix", col = cols[targets$Cell_Group], cex.axis=.5, las=2)
+
+plotDensities(log2(counts+1), legend = "topright", main = "Raw count matrix",levels(targets$Cell_Group))
+```
+
+```{r, echo=TRUE}
+dim(counts)
+y <- DGEList(counts=counts)
+
+#filter by mean of ten or more
+A <- rowMeans(y$counts)
+isexpr <- A > 10
+
+y <- y[isexpr,]
+
+#normalize
+y <- calcNormFactors(y)
+dim(y)
+```
+
+Transform to logcpm with voom, create model matrix, and plot MDS
+```{r}
+#gr <- factor(targets$Group,levels=unique(targets$Group))
+t <- factor(targets$Treatment, levels = unique(targets$Treatment))
+
+design <- model.matrix(~0 + t)
+
+colnames(design) <- levels(t)
+
+eset_voom <- voom(y, design,plot=TRUE)
+
+# plot MDS
+plotMDS(eset_voom, labels = targets$Treatment, main = "Sample Groups", cex = .8)
+
+#Obtain normalized matrix
+norm_matrix <- eset_voom$E
+
+#write normalized matrix to a file
+#write.csv(norm_matrix, file="norm_matrix.csv")
+
+```
+Lets look at the distribution of counts after normalization 
+
+```{r boxplot_after_normalization, fig.width=7, fig.height=6,echo=TRUE}
+par(cex.axis=.5)
+
+cols = c('deepskyblue3','darkolivegreen3','deepskyblue','darkolivegreen1','darkorchid1','darkorchid2')
+boxplot(eset_voom$E, las=2, names= colnames(eset_voom$E), main = "Normalized count matrix", col = cols)
+
+plotDensities(eset_voom$E, legend = "topright", main = "Normalized count matrix", levels(targets$Cell_Group))
+
+```
+
+# PCA
+```{r}
+targetsPCA<-targets
+rownames(targetsPCA) <- targetsPCA[ , 1]
+targetsPCA <- targetsPCA[,-1]
+targetsPCA$Timepoint<-as.factor(targetsPCA$Timepoint)
+
+pc <- prcomp(t(norm_matrix))
+# plot PCA
+autoplot(pc,
+         data = targetsPCA, 
+         fill="Group", 
+         shape="Timepoint",
+         size=4) +
+        theme_bw()+
+        theme(panel.grid.major = element_blank(),panel.grid.minor = element_blank(),
+              axis.text.x=element_text(face = "bold", size = 14, colour = "black"),
+              axis.text.y = element_text(face="bold", size=16, colour = "black"),
+              axis.title=element_text(size=14,face="bold", colour="black"),
+              legend.title = element_text(colour="black", size=16,face="bold"),
+              legend.text = element_text(colour="black", size=14,face="bold"))+
+  
+        scale_shape_manual(values=c(21,22, 24)) +
+       scale_fill_manual(values = c("darkred","goldenrod","darkgrey")) +
+        guides(fill = guide_legend(override.aes=list(shape=22)))
+ggsave("AllSamples_PCA.pdf", 
+       plot=last_plot(), 
+       device=cairo_pdf, 
+       path=NULL, 
+       scale=1, 
+       width=7, height=5, 
+       dpi=900, limitsize=TRUE)
+```
+
+# PCA, IFNb only
+```{r}
+targetsIFNb<-targetsPCA[targetsPCA["Group"] == "Mock" | targetsPCA["Group"] ==  "IFNB", ]
+nm_IFNb<-norm_matrix[,colnames(norm_matrix) %in% row.names(targetsIFNb)]
+targetsIFNb$Treatment2<-paste(targetsIFNb$Group,targetsIFNb$Timepoint2,sep="_")
+
+pc <- prcomp(t(nm_IFNb))
+# plot PCA
+autoplot(pc,
+         data = targetsIFNb, 
+         fill="CellType", 
+         shape="Treatment2",
+         size=4) +
+        theme_bw()+
+        theme(panel.grid.major = element_blank(),panel.grid.minor = element_blank(),
+              axis.text.x=element_text(face = "bold", size = 14, colour = "black"),
+              axis.text.y = element_text(face="bold", size=16, colour = "black"),
+              axis.title=element_text(size=14,face="bold", colour="black"),
+              legend.title = element_text(colour="black", size=16,face="bold"),
+              legend.text = element_text(colour="black", size=14,face="bold"))+
+        scale_shape_manual(values=c(23,21,22,24),
+                           name  ="Treatment2",
+                            breaks=c("Mock_4h", "IFNB_4h","IFNB_8h","IFNB_12h")) +
+        scale_fill_manual(values = c("steelblue4", "darkred")) +
+        guides(fill = guide_legend(override.aes=list(shape=22),reverse=TRUE))
+
+ggsave("IFNB_PCA.pdf", 
+       plot=last_plot(), 
+       device=cairo_pdf, 
+       path=NULL, 
+       scale=1, 
+       width=7, height=5, 
+       dpi=900, limitsize=TRUE)
+
+```
+
+# Build Linear model. Create Venn Diagrams
+```{r, eval=TRUE}
+fit <- lmFit(eset_voom, design)
+
+#MOCKs
+cont.matrix1 <- makeContrasts(Jurkat_Mock_4h-JLat92_Mock_4h,
+                              levels=design)
+
+#All IFNB
+cont.matrix2 <- makeContrasts(Jurkat_IFNB_4h - Jurkat_Mock_4h,
+                             Jurkat_IFNB_8h - Jurkat_Mock_4h,
+                             Jurkat_IFNB_12h - Jurkat_Mock_4h,
+                             JLat92_IFNB_4h - JLat92_Mock_4h,
+                             JLat92_IFNB_8h - JLat92_Mock_4h,
+                             JLat92_IFNB_12h - JLat92_Mock_4h,
+                             levels=design)
+
+cont.matrix2.1 <- makeContrasts(Jurkat_IFNB_4h - Jurkat_Mock_4h,
+                             Jurkat_IFNB_8h - Jurkat_Mock_4h,
+                             Jurkat_IFNB_12h - Jurkat_Mock_4h,
+                            levels=design)
+
+cont.matrix2.2 <- makeContrasts(JLat92_IFNB_4h - JLat92_Mock_4h,
+                             JLat92_IFNB_8h - JLat92_Mock_4h,
+                             JLat92_IFNB_12h - JLat92_Mock_4h,levels=design)
+
+#All IFNy
+cont.matrix3 <- makeContrasts(Jurkat_IFNy_4h - Jurkat_Mock_4h,
+                             Jurkat_IFNy_8h - Jurkat_Mock_4h,
+                             Jurkat_IFNy_12h - Jurkat_Mock_4h,
+                             JLat92_IFNy_4h - JLat92_Mock_4h,
+                             JLat92_IFNy_8h - JLat92_Mock_4h,
+                             JLat92_IFNy_12h - JLat92_Mock_4h,levels=design)
+
+cont.matrix3.1 <- makeContrasts(Jurkat_IFNy_4h - Jurkat_Mock_4h,
+                             Jurkat_IFNy_8h - Jurkat_Mock_4h,
+                             Jurkat_IFNy_12h - Jurkat_Mock_4h,
+                             levels=design)
+
+cont.matrix3.2 <- makeContrasts(JLat92_IFNy_4h - JLat92_Mock_4h,
+                             JLat92_IFNy_8h - JLat92_Mock_4h,
+                             JLat92_IFNy_12h - JLat92_Mock_4h,levels=design)
+
+#Direct comparison IFNB
+cont.matrix4 <- makeContrasts(Jurkat_IFNB_4h - JLat92_IFNB_4h ,
+                              Jurkat_IFNB_8h - JLat92_IFNB_8h ,
+                              Jurkat_IFNB_12h - JLat92_IFNB_12h,
+                             levels=design)
+#Direct comparison IFNy
+cont.matrix5 <- makeContrasts(JLat92_IFNy_4h - Jurkat_IFNy_4h,
+                             JLat92_IFNy_8h - Jurkat_IFNy_8h,
+                             JLat92_IFNy_12h - Jurkat_IFNy_12h,levels=design)
+
+#DDEs_IFNB
+cont.matrix6 <- makeContrasts("((JLat92_IFNB_4h - JLat92_Mock_4h) - (Jurkat_IFNB_4h - Jurkat_Mock_4h))", 
+                        "((JLat92_IFNB_8h - JLat92_Mock_4h) - (Jurkat_IFNB_8h - Jurkat_Mock_4h))",
+                        "((JLat92_IFNB_12h - JLat92_Mock_4h) - (Jurkat_IFNB_12h - Jurkat_Mock_4h))",
+                        levels=design)
+
+#cont.matrix6 <- makeContrasts("((Jurkat_IFNB_4h - Jurkat_Mock_4h)-(JLat92_IFNB_4h - JLat92_Mock_4h))", 
+#                        "((Jurkat_IFNB_8h - Jurkat_Mock_4h)-(JLat92_IFNB_8h - JLat92_Mock_4h))",
+#                        "((Jurkat_IFNB_12h - Jurkat_Mock_4h)-(JLat92_IFNB_12h - JLat92_Mock_4h))",
+#                        levels=design)
+#
+#DDE_IFNy = 
+cont.matrix7 <- makeContrasts("((JLat92_IFNy_4h - JLat92_Mock_4h) - (Jurkat_IFNy_4h - Jurkat_Mock_4h))", 
+                        "((JLat92_IFNy_8h - JLat92_Mock_4h) - (Jurkat_IFNy_8h - Jurkat_Mock_4h))",
+                        "((JLat92_IFNy_12h - JLat92_Mock_4h) - (Jurkat_IFNy_12h - Jurkat_Mock_4h))",levels=design)
+
+
+
+
+fit1 <- contrasts.fit(fit,cont.matrix1) # Mocks
+
+fit2 <- contrasts.fit(fit,cont.matrix2) # IFNB DE
+fit2.1 <- contrasts.fit(fit,cont.matrix2.1) 
+fit2.2 <- contrasts.fit(fit,cont.matrix2.2) 
+
+fit3 <- contrasts.fit(fit,cont.matrix3) # IFNY DE
+fit3.1 <- contrasts.fit(fit,cont.matrix3.1)
+fit3.2 <- contrasts.fit(fit,cont.matrix3.2) 
+
+fit4 <- contrasts.fit(fit,cont.matrix4) 
+
+fit6 <- contrasts.fit(fit,cont.matrix6)#DDEs_IFNB
+fit7 <- contrasts.fit(fit,cont.matrix7) 
+
+fit1 <- eBayes(fit1)
+
+fit2 <- eBayes(fit2)
+fit2.1 <- eBayes(fit2.1)
+fit2.2 <- eBayes(fit2.2)
+
+fit3 <- eBayes(fit3)
+fit3.1 <- eBayes(fit3.1)
+fit3.2 <- eBayes(fit3.2)
+
+fit4 <- eBayes(fit4)
+
+fit6 <- eBayes(fit6)
+fit7 <- eBayes(fit7)
+
+results1 <- decideTests(fit1, lfc=(.58), method="separate", adjust.method="BH", p.value=0.05);
+
+results2 <- decideTests(fit2, lfc=(.58), method="separate", adjust.method="BH", p.value=0.05);
+results2.1 <- decideTests(fit2.1, lfc=(.58), method="separate", adjust.method="BH", p.value=0.05);
+results2.2 <- decideTests(fit2.2, lfc=(.58), method="separate", adjust.method="BH", p.value=0.05);
+
+results3 <- decideTests(fit3, lfc=(.58), method="separate", adjust.method="BH", p.value=0.05);
+results3.1 <- decideTests(fit3.1, lfc=(.58), method="separate", adjust.method="BH", p.value=0.05);
+results3.2 <- decideTests(fit3.2, lfc=(.58), method="separate", adjust.method="BH", p.value=0.05);
+
+results4 <- decideTests(fit4, lfc=(.58), method="separate", adjust.method="BH", p.value=0.05);
+
+results6 <- decideTests(fit6, lfc=(.58), method="separate", adjust.method="BH", p.value=0.05);
+results7 <- decideTests(fit7, lfc=(.58), method="separate", adjust.method="BH", p.value=0.05);
+
+                       
+#DE summary
+summary(results1)
+
+summary(results2)
+summary(results2.1)
+summary(results2.2)
+
+summary(results3)
+summary(results3.1)
+summary(results3.2)
+
+summary(results4)
+summary(results6)
+summary(results7)
+
+```
+
+Output results to file
+```{r}
+#Write DE results to file
+write.fit(fit1, file="rebecca_DE.mocks_jurkatvsjlat.txt", digits=3, method="separate", adjust="BH");
+write.fit(fit2, file="rebecca_DE.IFNB.txt", digits=3, method="separate", adjust="BH");
+write.fit(fit3, file="rebecca_DE.IFNy.txt", digits=3, method="separate", adjust="BH");
+
+
+write.fit(fit6, file="rebecca_DDE_IFNb.txt", digits=3, method="separate", adjust="BH");
+write.fit(fit7, file="rebecca_DDE_IFNy.txt", digits=3, method="separate", adjust="BH");
+
+```
+
+# Volcano plot
+```{r Volcanos, fig.width=7, fig.height=7,eval=T, echo=T}
+DDEs <-read.csv("rebecca_DDE_IFNb.txt", sep="\t",header=T, row.names = 1)
+Mocks <-read.csv("rebecca_DE.mocks.txt", sep="\t",header=T, row.names = 1)
+
+plot(Mocks[, "A"], Mocks[, "Coef"], pch = ".", col = ifelse(Mocks[, "p.value.adj"] < 
+    0.05, 2, 1), cex = ifelse(Mocks[, "p.value.adj"] < 0.05, 3, 1), xlab = "AveExpr", 
+    ylab = "logFC", main = "NP-ES")
+legend("topright", "adj. p-value < 0.05", text.col = 2, bty = "n")
+
+#Mocks 4h Volcano
+png(filename="Mocks_4h_volcano.png",width=2000,height=3000,res=300)
+with(Mocks, plot(Coef, -log10(p.value.adj), pch=21, col="gray90", bg="grey", main="", cex.main=.8, 
+                 ylim=c(0,6),xlim=c(-5,5), 
+                 xlab="Log2 Fold Change", ylab="-Log10 (p-value)"))
+with(subset(Mocks, Coef >0.58 & p.value.adj <.05), points(Coef, -log10(p.value.adj), pch=21, col="chocolate4", bg="chocolate1"))
+with(subset(Mocks, Coef < -0.58 & p.value.adj <.05), points(Coef, -log10(p.value.adj), pch=21, col="steelblue4", bg="steelblue"))
+dev.off()
+
+#DDE 4h Volcano
+png(filename="DDE_4h_volcano.png",width=2000,height=3000,res=300)
+with(DDEs, plot(Jlat_vs_Jurkat_LFC_4h, -log10(Jlat_vs_Jurkat_padj_4h), 
+                pch=21, col="gray90", bg="grey", main="", cex.main=.8, 
+                #ylim=c(0,6),xlim=c(-7,3), 
+                xlab="Log2 Fold Change", ylab="-Log10 (p-value)"))
+with(subset(DDEs, Jlat_vs_Jurkat_LFC_4h >0.58 & Jlat_vs_Jurkat_padj_4h <.05), points(Jlat_vs_Jurkat_LFC_4h, -log10(Jlat_vs_Jurkat_padj_4h), pch=21, col="chocolate4", bg="chocolate1"))
+with(subset(DDEs, Jlat_vs_Jurkat_LFC_4h < -0.58 & Jlat_vs_Jurkat_padj_4h <.05), points(Jlat_vs_Jurkat_LFC_4h, -log10(Jlat_vs_Jurkat_padj_4h), pch=21, col="steelblue4", bg="steelblue"))
+dev.off()
+
+```
+
+# IFNb Volcano
+```{r Volcanos IFNb, fig.width=7, fig.height=7,eval=T, echo=T}
+de_ifnb <-read.csv("rebecca_DE.IFNB.txt", sep="\t",header=T, row.names = 1)
+
+# IFNb 8h Volcano
+png(filename="IFNb_Jurkat_8h_volcano.png",width=2000,height=3000,res=300)
+with(de_ifnb, plot(Coef.Jurkat_IFNB_8h...Jurkat_Mock_4h, -log10(p.value.adj.Jurkat_IFNB_8h...Jurkat_Mock_4h), pch=21, col="gray90", bg="grey", main="", cex.main=.8, 
+                ylim=c(0,6),xlim=c(-5,5), 
+                 xlab="Log2 Fold Change", ylab="-Log10 (p-value)"))
+with(subset(de_ifnb, Coef.Jurkat_IFNB_8h...Jurkat_Mock_4h >0.58 & p.value.adj.Jurkat_IFNB_8h...Jurkat_Mock_4h <.05), points(Coef.Jurkat_IFNB_8h...Jurkat_Mock_4h, -log10(p.value.adj.Jurkat_IFNB_8h...Jurkat_Mock_4h), pch=21, col="chocolate4", bg="chocolate1"))
+with(subset(de_ifnb, Coef.Jurkat_IFNB_8h...Jurkat_Mock_4h < -0.58 & p.value.adj.Jurkat_IFNB_8h...Jurkat_Mock_4h <.05), points(Coef.Jurkat_IFNB_8h...Jurkat_Mock_4h, -log10(p.value.adj.Jurkat_IFNB_8h...Jurkat_Mock_4h), pch=21, col="steelblue4", bg="steelblue"))
+dev.off()
+
+png(filename="IFNb_JLat92_8h_volcano.png",width=2000,height=3000,res=300)
+with(de_ifnb, plot(Coef.JLat92_IFNB_8h...JLat92_Mock_4h, -log10(p.value.adj.JLat92_IFNB_8h...JLat92_Mock_4h), pch=21, col="gray90", bg="grey", main="", cex.main=.8, 
+                ylim=c(0,6),xlim=c(-5,5), 
+                 xlab="Log2 Fold Change", ylab="-Log10 (p-value)"))
+with(subset(de_ifnb, Coef.JLat92_IFNB_8h...JLat92_Mock_4h >0.58 & p.value.adj.JLat92_IFNB_8h...JLat92_Mock_4h <.05), points(Coef.JLat92_IFNB_8h...JLat92_Mock_4h, -log10(p.value.adj.JLat92_IFNB_8h...JLat92_Mock_4h), pch=21, col="chocolate4", bg="chocolate1"))
+with(subset(de_ifnb, Coef.JLat92_IFNB_8h...JLat92_Mock_4h < -0.58 & p.value.adj.JLat92_IFNB_8h...JLat92_Mock_4h <.05), points(Coef.JLat92_IFNB_8h...JLat92_Mock_4h, -log10(p.value.adj.JLat92_IFNB_8h...JLat92_Mock_4h), pch=21, col="steelblue4", bg="steelblue"))
+dev.off()
+
+
+```
+
+
+# Volcano plot IFNg
+```{r Volcanos IFNg, fig.width=7, fig.height=7,eval=T, echo=T}
+de_ifng <-read.csv("rebecca_DE.IFNy.txt", sep="\t",header=T, row.names = 1)
+
+# IFNg 8h Volcano
+png(filename="IFNg_Jurkat_8h_volcano.png",width=2000,height=3000,res=300)
+with(de_ifng, plot(Coef.Jurkat_IFNy_8h...Jurkat_Mock_4h, -log10(P.value.adj.Jurkat_IFNy_8h...Jurkat_Mock_4h), pch=21, col="gray90", bg="grey", main="", cex.main=.8, 
+                ylim=c(0,6),xlim=c(-5,5), 
+                 xlab="Log2 Fold Change", ylab="-Log10 (p-value)"))
+with(subset(de_ifng, Coef.Jurkat_IFNy_8h...Jurkat_Mock_4h >0.58 & P.value.adj.Jurkat_IFNy_8h...Jurkat_Mock_4h <.05), points(Coef.Jurkat_IFNy_8h...Jurkat_Mock_4h, -log10(P.value.adj.Jurkat_IFNy_8h...Jurkat_Mock_4h), pch=21, col="chocolate4", bg="chocolate1"))
+with(subset(de_ifng, Coef.Jurkat_IFNy_8h...Jurkat_Mock_4h < -0.58 & P.value.adj.Jurkat_IFNy_8h...Jurkat_Mock_4h <.05), points(Coef.Jurkat_IFNy_8h...Jurkat_Mock_4h, -log10(P.value.adj.Jurkat_IFNy_8h...Jurkat_Mock_4h), pch=21, col="steelblue4", bg="steelblue"))
+dev.off()
+
+png(filename="IFNg_JLat92_8h_volcano.png",width=2000,height=3000,res=300)
+with(de_ifng, plot(Coef.JLat92_IFNy_8h...JLat92_Mock_4h, -log10(P.value.adj.JLat92_IFNy_8h...JLat92_Mock_4h), pch=21, col="gray90", bg="grey", main="", cex.main=.8, 
+                ylim=c(0,6),xlim=c(-5,5), 
+                 xlab="Log2 Fold Change", ylab="-Log10 (p-value)"))
+with(subset(de_ifng, Coef.JLat92_IFNy_8h...JLat92_Mock_4h >0.58 & P.value.adj.JLat92_IFNy_8h...JLat92_Mock_4h <.05), points(Coef.JLat92_IFNy_8h...JLat92_Mock_4h, -log10(P.value.adj.JLat92_IFNy_8h...JLat92_Mock_4h), pch=21, col="chocolate4", bg="chocolate1"))
+with(subset(de_ifng, Coef.JLat92_IFNy_8h...JLat92_Mock_4h < -0.58 & P.value.adj.JLat92_IFNy_8h...JLat92_Mock_4h <.05), points(Coef.JLat92_IFNy_8h...JLat92_Mock_4h, -log10(P.value.adj.JLat92_IFNy_8h...JLat92_Mock_4h), pch=21, col="steelblue4", bg="steelblue"))
+dev.off()
+
+
+```
+
+
+Differentially express genes summary
+```{r, echo=FALSE, message = FALSE, fig.width=11, fig.height=9}
+# Reshape data frame for ggplot2 requirements
+library(data.table)
+library(ggplot2)
+
+results_t <- t(summary(results3))
+results_t <- results_t[,-2]
+
+for (i in 1:(length(row.names(results_t)))) {
+  results_t[i, 1] <- results_t[i, 1] * -1
+}
+
+DE <- as.data.frame(results_t)
+DE <- setnames(DE, old=c("Var1","Var2", "Freq"), new=c("Time_Point", "group", "DE_genes"))
+
+#write.csv(DE , file="barplot_TP186.csv",row.names=FALSE)
+
+#Create plot
+
+ggplot(DE, aes(x=Time_Point, y=DE_genes, fill=group, label = DE$DE_genes))+  geom_bar(stat="identity", position="identity")+
+geom_text(size = 10, position = position_stack(vjust = 0.5) )+
+scale_fill_manual(values = c("#9d9dff", "#ff4d4d")) +
+ylab("Number of Differentially Expressed Genes") +
+theme(axis.text.x=element_text(angle=90,hjust=1,vjust=0.5))
+
+##### IFNg
+
+results_t <- t(summary(results3))
+results_t <- results_t[,-2]
+
+for (i in 1:(length(row.names(results_t)))) {
+  results_t[i, 1] <- results_t[i, 1] * -1
+}
+
+DE <- as.data.frame(results_t)
+DE <- setnames(DE, old=c("Var1","Var2", "Freq"), new=c("Time_Point", "Expression", "DE_genes"))
+
+#Create plot
+ggplot(DE, aes(x=Time_Point, y=DE_genes, fill=Expression, label = DE$DE_genes))+  
+  geom_bar(stat="identity", position="identity")+
+  #geom_text(size = 6, position = position_stack(vjust = 0.5) )+
+  scale_fill_manual(values = c("steelblue4", "chocolate3")) +
+  ylab("Number of Differentially Expressed Genes") +
+  theme(axis.text.x=element_text(angle=90,hjust=1,vjust=0.5, size=18, color="black"),
+        axis.text.y=element_text(size=18, color="black"))+
+  scale_x_discrete(labels=c("Jukat 4h","Jukat 8h","Jukat 12h","Jlat 4h","Jlat 8h","Jlat 12h"))+
+  geom_vline(xintercept = c(3.5))
+
+ggsave("DE_Genes_BarPlot_IFNy.pdf", 
+       plot=last_plot(), 
+       device=cairo_pdf, 
+       path=NULL, 
+       scale=1, 
+       width=8, height=6, 
+       dpi=900, limitsize=TRUE)
+
+```
+
+Generate Coexpression Heatmaps 
+```{r heatmap, fig.width=12, fig.height=10,eval=T, echo=T}
+#Mocks
+dataMatrix1 <- fit1$coefficients # Extract results of differential expression
+
+#IFNb
+dataMatrix2 <- fit2$coefficients # Extract results of differential expression
+dataMatrix2.1 <- fit2.1$coefficients
+dataMatrix2.2 <- fit2.2$coefficients
+
+#IFNg
+dataMatrix3 <- fit3$coefficients # Extract results of differential expression
+dataMatrix3.1 <- fit3.1$coefficients
+dataMatrix3.2 <- fit3.2$coefficients 
+#datamatrix23 <- merge(dataMatrix2,dataMatrix3, by.x.="row.names")
+
+dataMatrix4 <- fit4$coefficients 
+
+
+#DDE IFNb
+dataMatrix6 <- fit6$coefficients # Extract results of differential expression
+
+#DDE IFNy
+dataMatrix7 <- fit7$coefficients # Extract results of differential expression
+
+
+sigMask1 <- dataMatrix1 * (results1**2) # 1 if significant, 0 otherwise
+sigMask2 <- dataMatrix2 * (results2**2) # 1 if significant, 0 otherwise
+sigMask2.1 <- dataMatrix2.1 * (results2.1**2)
+sigMask2.2 <- dataMatrix2.2 * (results2.2**2)
+
+sigMask3 <- dataMatrix3 * (results3**2) # 1 if significant, 0 otherwise
+sigMask3.1 <- dataMatrix3.1 * (results3.1**2)
+sigMask3.2 <- dataMatrix3.2 * (results3.2**2)
+
+sigMask4<- dataMatrix4 * (results4**2)
+
+
+sigMask6 <- dataMatrix6 * (results6**2) # 1 if significant, 0 otherwise
+sigMask7 <- dataMatrix7 * (results7**2) # 1 if significant, 0 otherwise
+
+ExpressMatrix1 <- subset(dataMatrix1, rowSums(sigMask1) != 0) # filter for significant genes
+
+ExpressMatrix2 <- subset(dataMatrix2, rowSums(sigMask2) != 0) # filter for significant genes
+ExpressMatrix2.1 <- subset(dataMatrix2.1, rowSums(sigMask2.1) != 0)
+ExpressMatrix2.2 <- subset(dataMatrix2.2, rowSums(sigMask2.2) != 0)
+
+ExpressMatrix3 <- subset(dataMatrix3, rowSums(sigMask3) != 0) # filter for significant genes
+ExpressMatrix3.1 <- subset(dataMatrix3.1, rowSums(sigMask3.1) != 0)
+ExpressMatrix3.2 <- subset(dataMatrix3.2, rowSums(sigMask3.2) != 0)
+
+ExpressMatrix4 <- subset(dataMatrix4, rowSums(sigMask4) != 0) # filter for significant genes
+
+
+ExpressMatrix6 <- subset(dataMatrix6, rowSums(sigMask6) != 0) # filter for significant genes
+ExpressMatrix7 <- subset(dataMatrix7, rowSums(sigMask7) != 0) # filter for significant genes
+
+
+# Filter sigMask to use for selecting DE genes from ExpressMatrix
+sigMask1 <- subset(sigMask1, rowSums(sigMask1) != 0)
+sigMask2 <- subset(sigMask2, rowSums(sigMask2) != 0)
+sigMask2.1 <- subset(sigMask2.1, rowSums(sigMask2.1) != 0)
+sigMask2.2 <- subset(sigMask2.2, rowSums(sigMask2.2) != 0)
+
+sigMask3 <- subset(sigMask3, rowSums(sigMask3) != 0)
+sigMask3.1 <- subset(sigMask3.1, rowSums(sigMask3.1) != 0)
+sigMask3.2 <- subset(sigMask3.2, rowSums(sigMask3.2) != 0)
+sigMask4 <- subset(sigMask4, rowSums(sigMask4) != 0)
+
+sigMask6 <- subset(sigMask6, rowSums(sigMask6) != 0)
+
+dim(sigMask1)
+dim(sigMask2)
+dim(sigMask2.1)
+dim(sigMask2.2)
+dim(sigMask3)
+
+dim(sigMask4)
+
+dim(sigMask6)
+
+
+length(sigMask2)
+length(sigMask3)
+length(sigMask4)
+
+#write.csv(ExpressMatrix1, file="ExpressMatrix_rebecca_Mocks_JurkatvsJlat.csv")
+#write.csv(ExpressMatrix2, file="ExpressMatrix_rebecca_All_DE_IFNB.csv")
+#write.csv(ExpressMatrix2.1, file="ExpressMatrix_rebecca_All_DE_jurkatIFNB.csv")
+#write.csv(ExpressMatrix2.2, file="ExpressMatrix_rebecca_All_DE_jlatIFNB.csv")
+
+#write.csv(ExpressMatrix3, file="ExpressMatrix_rebecca_All_DE_IFNY.csv")
+#write.csv(ExpressMatrix3.1, file="ExpressMatrix_rebecca_All_DE_jurkatIFNY.csv")
+#write.csv(ExpressMatrix3.2, file="ExpressMatrix_rebecca_All_DE_jlatIFNY.csv")
+#write.csv(ExpressMatrix4, file="ExpressMatrix_rebecca_DirectDE_JurkatvsJlat.csv")
+
+#write.csv(ExpressMatrix6, file="ExpressMatrix_rebecca_DDEs_IFNb_JurkatvsJlat.csv")
+
+#source("heatmap.F.R")
+source("../Scripts/heatmap2.F_rownames.R")
+
+#rebecca_global_modules_mock <- heatmap.F.4(ExpressMatrix1, cutoff = 3, distmethod = "euclidean", clustermethod = "ward.D")
+png("Z:/Users/dnewho/Rebecca/Rebecca_Heatmap_IFNB_DE.png", width = 8, height = 10, units = 'in', res = 300)
+rebecca_global_modules_IFNB_DE <- heatmap.F(ExpressMatrix2, cutoff = 3, distmethod = "euclidean", clustermethod = "ward.D")
+dev.off()
+
+
+pdf("Z:/Users/dnewho/Rebecca/Rebecca_Heatmap_IFNB_DE_KEY.pdf", width = 12, height = 6)
+#png("Z:/Users/dnewho/Rebecca/Rebecca_Heatmap_IFNb_DE_KEY.png", width = 4, height = 5, units = 'in',res=600)
+rebecca_global_modules_IFNB_DE <- heatmap.F.rownames(ExpressMatrix2,
+                                               key=TRUE,
+                                               cutoff = 3, 
+                                               margins=c(10,10),
+                                               distmethod = "euclidean",
+                                               labCol = c("Jurkat4h","Jurkat8h","Jurkat12h","Jlat4h","Jlat8h","Jlat12h"),
+                                               labRow = FALSE,
+                                               clustermethod = "ward.D")
+dev.off()
+
+pdf("Z:/Users/dnewho/Rebecca/Rebecca_Heatmap_IFNy_DE_KEY.pdf", width = 6, height = 8)
+#png("Z:/Users/dnewho/Rebecca/Rebecca_Heatmap_IFNy_DE_KEY.png", width = 4, height = 5, units = 'in',res=600)
+rebecca_global_modules_IFNy_DE <- heatmap.F.rownames(ExpressMatrix3,
+                                                     cutoffmethod = "number",
+                                               key=TRUE,
+                                               cutoff = 7, 
+                                               margins=c(10,10),
+                                               distmethod = "euclidean",
+                                               labCol = c("Jurkat4h","Jurkat8h","Jurkat12h","Jlat4h","Jlat8h","Jlat12h"),
+                                               labRow = FALSE,
+                                               clustermethod = "ward.D")
+dev.off()
+
+
+for (mod in unique(rebecca_global_modules_IFNB_DE$modules)) {
+  gm<-as.data.frame(rebecca_global_modules_IFNB_DE$modules)
+  gm<-gm %>% rownames_to_column('gene')
+  tmp<-filter(gm, gm$`rebecca_global_modules_IFNB_DE$modules`==mod)
+  tmp <- tmp %>% column_to_rownames('gene')
+  tmp$`rebecca_global_modules_IFNB_DE$modules`<-NULL
+  filename<-paste('globalmodules/IFNbDE_modules', mod, 'txt', sep = '.')
+  write.table(tmp,file=filename,quote = F)
+}
+
+for (mod in unique(rebecca_global_modules_IFNy_DE$modules)) {
+  gm<-as.data.frame(rebecca_global_modules_IFNy_DE$modules)
+  gm<-gm %>% rownames_to_column('gene')
+  tmp<-filter(gm, gm$`rebecca_global_modules_IFNy_DE$modules`==mod)
+  tmp <- tmp %>% column_to_rownames('gene')
+  tmp$`rebecca_global_modules_IFNy_DE$modules`<-NULL
+  filename<-paste('globalmodules/IFNy_DE_modules', mod, 'txt', sep = '.')
+  write.table(tmp,file=filename,quote = F)
+}
+
+
+
+
+
+#rebecca_global_modules_IFNY <- heatmap.F.4(ExpressMatrix3, cutoff = 3, distmethod = "euclidean", clustermethod = "ward.D")
+
+
+#rebecca_global_modules_mock <- heatmap.F.4(ExpressMatrix1, cutoff = 3, distmethod = "euclidean", clustermethod = "ward.D")
+png("Z:/Users/dnewho/Rebecca/Rebecca_Heatmap_IFNB_DirectDE_JurkatvsJlat.png", width = 8, height = 10, units = 'in', res = 900)
+global_modules <- heatmap.F.rownames(ExpressMatrix4, 
+                                              cutoff = 1, 
+                                              distmethod = "euclidean", 
+                                              clustermethod = "ward.D", 
+                                              clusterdim='row',
+                                              colsep =NULL,
+                                              cexCol = 2,
+                                              key=T,
+                                              labRow = FALSE,
+                                              labCol = c("4h","8h","12h" ))
+dev.off()
+
+for (mod in unique(global_modules$modules)) {
+  gm<-as.data.frame(global_modules$modules)
+  gm<-gm %>% rownames_to_column('gene')
+  tmp<-filter(gm, gm$`global_modules$modules`==mod)
+  tmp <- tmp %>% column_to_rownames('gene')
+  tmp$`global_modules$modules`<-NULL
+  filename<-paste('DirectDE_modules', mod, 'txt', sep = '.')
+  write.table(tmp,file=filename,quote = F)
+}
+
+pdf("Z:/Users/dnewho/Rebecca/Rebecca_Heatmap_IFNB_DDE_KEY.pdf", width = 10, height = 6)
+#png("Z:/Users/dnewho/Rebecca/Rebecca_Heatmap_IFNB_DDE_JurkatvsJlat.png", width = 6, height = 15, units = 'in', res = 900)
+global_modules <- heatmap.F.rownames(ExpressMatrix6, 
+                                              cutoff = 1, 
+                                              distmethod = "euclidean", 
+                                              clustermethod = "ward.D", 
+                                              clusterdim='row',
+                                              colsep =NULL,
+                                              cexCol = 2,
+                                              key=T,
+                                              labRow = FALSE,
+                                              labCol = c("4h","8h","12h" ))
+dev.off()
+#Mocks
+#write.csv(rebecca_global_modules, file="rebecca_global_modules_Mocks.csv")
+
+#just Jurkat IFNB
+#write.csv(rebecca_global_modules, file="rebecca_global_modules_Jrkat_IFNB.csv")
+
+#just Jurkat IFNy
+#write.csv(rebecca_global_modules, file="rebecca_global_modules_Jurkat_IFNy.csv")
+
+#just Jurkat IFNB
+#write.csv(rebecca_global_modules, file="rebecca_global_modules_JLat92_IFNB.csv")
+
+#just Jurkat IFNy
+#write.csv(rebecca_global_modules, file="rebecca_global_modules_JLat92_IFNy.csv")
+
+#All IFNB
+write.csv(rebecca_global_modules_IFNB_DE, file="rebecca_global_modules_IFNB_DE.csv")
+
+#All IFNy
+#write.csv(rebecca_global_modules_IFNY, file="rebecca_global_modules_IFNy.csv")
+
+#just Direct comparison IFNB
+#write.csv(rebecca_global_modules, file="rebecca_global_modules_DirectIFNB.csv")
+
+#just Direct comparison 
+#write.csv(rebecca_global_modules, file="rebecca_global_modules_DirectIFNy.csv")
+
+#All IFNB
+write.csv(rebecca_global_modules_IFNB_DDE, file="rebecca_global_modulesDDE_IFNB.csv")
+
+#All IFNy
+#write.csv(rebecca_global_modules, file="rebecca_global_modulesDDE_IFNy.csv")
+
+```
+
+
+#Subset full results to just DE/DDE Genes
+```{r}
+DE_results<-read.table("rebecca_DE.IFNB.txt",sep="\t")
+DE_results_ifny<-read.table("rebecca_DE.IFNy.txt",sep="\t",row.names=1,header=T)
+
+DDE_results<-read.table("rebecca_DDE_IFNb.txt",sep="\t")
+
+DE_sig<-DE_results[row.names(ExpressMatrix2),]
+DE_sig_ifny<-DE_results_ifny[row.names(ExpressMatrix3),]
+
+DDE_sig<-DDE_results[row.names(ExpressMatrix6),]
+
+write.csv(DE_sig,file="Supplement_DEgenes_results.csv")
+write.csv(DE_sig_ifny,file="IFNy_SigDEgenes_results.csv")
+write.csv(DDE_sig,file="Supplement_DDEgenes_results.csv")
+
+```
+
+
+Mocks Heatmap
+```{r Mocks Heatmap}
+contrasting2 = colorRampPalette(rev(c("deepskyblue3","skyblue","white","chocolate1","chocolate2")))(100)
+breaksList=seq(-5, 5, by = .1)
+
+ExpressMatrix1 <- as.data.frame(ExpressMatrix1)
+
+pheatmap(ExpressMatrix1,
+         #scale="row", 
+         color = colorRampPalette(rev(c(name = contrasting2)))(length(breaksList)),
+         cluster_rows = T,
+         cluster_cols = F,
+         show_rownames = F, show_colnames = T,
+         border_color=NA, 
+         breaks = breaksList,
+         #annotation_col = df, annotation_colors = annotation_colors, 
+         main="Mocks")
+```
+
+Mocks GSEA
+```{r Mocks GSEA}
+mocksrnk<-read.csv("Mocks_JurkatvsJlat.rnk",sep="\t",header=F)
+
+WebGestaltR(
+  interestGene="mocksrnk",
+  enrichMehod="GSEA",
+  organism="hsapiens",
+  #projectName = "MocksGSEA_JurkatvsJlat",
+  minNum=5,
+  interestGeneType="genesymbol",
+  enrichDatabase = c("geneontology_Biological_Process_noRedundant",
+                     "geneontology_Molecular_Function_noRedundant",
+                     "geneontology_Cellular_Component_noRedundant",
+                     "pathway_KEGG"),
+  sigMethod = "fdr", fdrMethod = "BH", fdrThr = 0.05, nThreads=8)
+
+```
+
+
+```{r barplot, fig.width=10, fig.height=10,eval=TRUE, echo=F}
+
+DE_results <- apply(sigMask, MARGIN = c(1, 2), FUN = function(x) {
+  if (x >= 1) {
+    x = 1
+  } else if (x <= -1) {
+    x = -1
+  } else {
+    x = 0
+  }
+})
+
+updown <- t(apply(DE_results, MARGIN = 2, FUN = table))
+updown <- as.data.frame(updown[, colnames(updown) != 0])
+updown <- cbind(updown, sample = row.names(updown), ord = seq(1, length(row.names(updown))))
+updown
+
+updown <- melt(updown, id.vars = c("sample", "ord"), variable.name = "direction", value.name = "count")
+for (i in 1:(length(row.names(updown))/2)) {
+  updown[i, 4] <- updown[i, 4] * -1
+}
+updown$pos <- updown$count >= 0
+
+# Create Plot
+DE_plot <- ggplot(updown, aes(x = reorder(sample, ord), y = count, fill = pos)) +
+  geom_bar(stat = "identity", pos = "identity") +
+  scale_fill_manual(values = c("#0000FF", "#FF0000"), guide = FALSE) +
+  ylab("Number of Differentially Expressed Genes") + 
+  theme_bw() +
+  theme(panel.grid.major.x = element_blank(),
+        panel.grid.minor.x = element_blank(),
+        panel.grid.major.y = element_blank(),
+        panel.grid.minor.y = element_blank(),
+        axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5),
+        axis.title.x = element_blank())
+print(DE_plot)
+```
+
+Run hierarchical clustering
+
+
+```{r}
+dat.dist<-dist(t(eset_voom$E))
+```
+
+```{r heatmap1, fig.width=10, fig.height=8,echo=TRUE}
+dat.dist<-dist(t(eset_voom$E))
+
+plot(hclust(dat.dist), labels = targets$Infected, cex=.7) 
+
+plot(hclust(dat.dist), labels = targets$CellType, cex=.7)
+
+plot(hclust(dat.dist), labels = targets$Timepoint, cex=.7)
+
+plot(hclust(dat.dist), labels = targets$Treatment, cex=.7)
+
+sessionInfo()
+```
+
+
+
+
