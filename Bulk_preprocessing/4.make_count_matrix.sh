@@ -1,0 +1,26 @@
+# !/bin/bash
+
+# input path of counts
+
+cd ../mapping/virus/Zika
+
+
+array=(001_SG_Gale_HIV_Lat_Jurkat_4h_RNA_mRNA_merged	002_SG_Gale_HIV_Lat_Jurkat_4h_RNA_mRNA_merged	003_SG_Gale_HIV_Lat_Jurkat_4h_RNA_mRNA_run01_S3	004_SG_Gale_HIV_Lat_IFNB_Jurkat_4h_RNA_mRNA_merged	005_SG_Gale_HIV_Lat_IFNB_Jurkat_4h_RNA_mRNA_merged	006_SG_Gale_HIV_Lat_IFNB_Jurkat_4h_RNA_mRNA_merged	007_SG_Gale_HIV_Lat_IFNB_Jurkat_8h_RNA_mRNA_merged	008_SG_Gale_HIV_Lat_IFNB_Jurkat_8h_RNA_mRNA_merged	009_SG_Gale_HIV_Lat_IFNB_Jurkat_8h_RNA_mRNA_merged	010_SG_Gale_HIV_Lat_IFNB_Jurkat_12h_RNA_mRNA_merged	011_SG_Gale_HIV_Lat_IFNB_Jurkat_12h_RNA_mRNA_merged	012_SG_Gale_HIV_Lat_IFNB_Jurkat_12h_RNA_mRNA_merged	013_SG_Gale_HIV_Lat_IFNy_Jurkat_4h_RNA_mRNA_run01_S13	014_SG_Gale_HIV_Lat_IFNy_Jurkat_4h_RNA_mRNA_merged	015_SG_Gale_HIV_Lat_IFNy_Jurkat_4h_RNA_mRNA_run01_S15	016_SG_Gale_HIV_Lat_IFNy_Jurkat_8h_RNA_mRNA_run01_S16	017_SG_Gale_HIV_Lat_IFNy_Jurkat_8h_RNA_mRNA_run01_S17	018_SG_Gale_HIV_Lat_IFNy_Jurkat_8h_RNA_mRNA_merged	019_SG_Gale_HIV_Lat_IFNy_Jurkat_12h_RNA_mRNA_merged	020_SG_Gale_HIV_Lat_IFNy_Jurkat_12h_RNA_mRNA_run02_S2	021_SG_Gale_HIV_Lat_IFNy_Jurkat_12h_RNA_mRNA_run02_S3	022_SG_Gale_HIV_Lat_JLat92_4h_RNA_mRNA_merged	023_SG_Gale_HIV_Lat_JLat92_4h_RNA_mRNA_merged	024_SG_Gale_HIV_Lat_JLat92_4h_RNA_mRNA_merged	025_SG_Gale_HIV_Lat_IFNB_JLat92_4h_RNA_mRNA_merged	026_SG_Gale_HIV_Lat_IFNB_JLat92_4h_RNA_mRNA_merged	027_SG_Gale_HIV_Lat_IFNB_JLat92_4h_RNA_mRNA_run02_S9	028_SG_Gale_HIV_Lat_IFNB_JLat92_8h_RNA_mRNA_merged	029_SG_Gale_HIV_Lat_IFNB_JLat92_8h_RNA_mRNA_run02_S11	030_SG_Gale_HIV_Lat_IFNB_JLat92_8h_RNA_mRNA_run02_S12	031_SG_Gale_HIV_Lat_IFNB_JLat92_12h_RNA_mRNA_run02_S13	032_SG_Gale_HIV_Lat_IFNB_JLat92_12h_RNA_mRNA_merged	033_SG_Gale_HIV_Lat_IFNB_JLat92_12h_RNA_mRNA_run02_S15	034_SG_Gale_HIV_Lat_IFNy_JLat92_4h_RNA_mRNA_merged	035_SG_Gale_HIV_Lat_IFNy_JLat92_4h_RNA_mRNA_merged	036_SG_Gale_HIV_Lat_IFNy_JLat92_4h_RNA_mRNA_merged	037_SG_Gale_HIV_Lat_IFNy_JLat92_8h_RNA_mRNA_run03_S1	038_SG_Gale_HIV_Lat_IFNy_JLat92_8h_RNA_mRNA_run03_S2	039_SG_Gale_HIV_Lat_IFNy_JLat92_8h_RNA_mRNA_run03_S3	040_SG_Gale_HIV_Lat_IFNy_JLat92_12h_RNA_mRNA_run03_S4	041_SG_Gale_HIV_Lat_IFNy_JLat92_12h_RNA_mRNA_run03_S5	042_SG_Gale_HIV_Lat_IFNy_JLat92_12h_RNA_mRNA_run03_S6)
+
+# read in names from first file (they all should be the same)
+cat ${array[0]}_counts.txt | awk '{print $1}' > count_matrix.txt
+
+for item in ${array[*]}
+do
+    # read in second column of each file and add it is a new column
+    echo $item
+    eval "cat '$item'_counts.txt | awk '{print \$2}' | paste count_matrix.txt - > output.txt"
+mv output.txt count_matrix.txt
+done
+
+# delete last 5 lines
+head -n -5 count_matrix.txt > tmp.txt && mv tmp.txt count_matrix.txt
+
+# add header
+output=$(printf "\t%s" "${array[@]}")
+echo -e "Name${output}" | cat - count_matrix.txt > tmp.txt && mv tmp.txt count_matrix.txt
